@@ -24,7 +24,7 @@ my $LOG_ERR = 4;
 
 my $script_path = $0;
 my $script = substr($script_path, rindex($script_path, '/') + 1, length($script_path));
-my $version = "1.0";
+my $version = "1.0.0";
 my $pid_file = "/tmp/mysqlbackup_wrapper.pid";
 
 my $exit_code = 0;
