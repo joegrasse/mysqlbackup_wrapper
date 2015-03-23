@@ -14,7 +14,7 @@ no warnings 'File::Find';
 use POSIX qw(strftime mktime);
 use Time::HiRes qw(tv_interval gettimeofday time);
 
-my $mysqlbackup = '/usr2/admin/mysql/meb-current/mysqlbackup';
+my $mysqlbackup = 'mysqlbackup';
 my $backupname_regex = "[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}";
 
 my $LOG_DEBUG = 1;
@@ -24,7 +24,7 @@ my $LOG_ERR = 4;
 
 my $script_path = $0;
 my $script = substr($script_path, rindex($script_path, '/') + 1, length($script_path));
-my $version = "1.0.0";
+my $version = "1.1.0";
 my $pid_file = "/tmp/mysqlbackup_wrapper.pid";
 
 my $exit_code = 0;
@@ -236,6 +236,9 @@ Usage:
                         number of memory buffers is adjusted according to this 
                         value.
   --email=S             Email address to send audit report
+  --mysqlbackup=MYSQLBACKUP
+                        The mysqlbackup binary location. Useful if mysqlbackup
+                        binary is not in your path.
   --help                Show help
   --version             Show version
   --debug               Enable verbose debugging output
@@ -289,10 +292,14 @@ Usage:
                     Skips copying of relaylogs
                     
   --my-file
-                    The configuration file to include in backup.
+                    The configuration file to include in backup. It is saved and
+                    restored as saved-my.cnf. If not set and /etc/my.cnf is 
+                    present and readable, /etc/my.cnf is backed up by default.
                     
   --buffer-pool-file=PATH
                     The location of the InnoDB Buffer Pool to backup.
+  --history-logging Enable history logging if connection is available. This is
+                    disabled by default.
 
   Restore Options [BACKUP-OPTIONS]:
   -------------------------------
@@ -314,6 +321,7 @@ sub get_options{
 
   my $ret = GetOptions( \%options,
     "mode=s",
+    "mysqlbackup=s",
     "backup-dir=s",
     "backup-type=s",
     "restore-dir=s",
@@ -331,6 +339,7 @@ sub get_options{
     "limit-memory=i",
     "my-file=s",
     "buffer-pool-file=s",
+    "history-logging!",
     "debug!",
     "help",
     "version"
@@ -390,6 +399,7 @@ sub parse_config_file{
               || $var =~ /^(no-?|)skip-binlog$/
               || $var =~ /^(no-?|)skip-relaylog$/
               || $var =~ /^(no-?|)debug$/ 
+              || $var =~ /^(no-?|)history-logging$/
             ){
               # value is not defined so figure out what it needs to be
               if(!defined($value)){
@@ -400,6 +410,11 @@ sub parse_config_file{
                 else{
                   $value = 1;
                 }
+              }
+              # value is defined
+              else{
+                print "Option ".$var." does not take an argument\n";
+                usage(0);                
               }
               log_msg("Setting Option [".$var."] to value [".$value."]", $LOG_DEBUG);
               $options{$var} = $value;
@@ -445,6 +460,16 @@ sub validate_options{
       usage(0);
     }
     
+    if($options{'mysqlbackup'}){ 
+      if(! -x $options{'mysqlbackup'}){
+        print "$options{'mysqlbackup'} is not executable\n";
+        usage(0);
+      }
+      else{
+        $mysqlbackup = $options{'mysqlbackup'};
+      }
+    }
+    
     # Check Backup Dir
     if(!$options{'backup-dir'}){
       print "Required option --backup-dir is missing\n";
@@ -484,8 +509,11 @@ sub validate_options{
       
       # Check my-file
       if(defined $options{'my-file'} && ! -r $options{'my-file'}){
-        print "--my-file is not a readable file\n";
+        print $options{'my-file'}." set by option --my-file, is not a readable file\n";
         usage(0);
+      }
+      elsif(! defined $options{'my-file'} && -r '/etc/my.cnf'){
+        $options{'my-file'} = '/etc/my.cnf';
       }
       
       # Check buffer-pool-file
@@ -1003,6 +1031,10 @@ sub take_backup{
   
   if($options{'skip-relaylog'}){
     push(@program, "--skip-relaylog");
+  }
+  
+  if(! $options{'history-logging'}){
+    push(@program, "--no-history-logging");
   }
   
   if($options{'backup-dir'}){
