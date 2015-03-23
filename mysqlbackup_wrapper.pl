@@ -296,6 +296,8 @@ Usage:
                     
   --buffer-pool-file=PATH
                     The location of the InnoDB Buffer Pool to backup.
+  --history-logging Enable history logging if connection is available. This is
+                    disabled by default.
 
   Restore Options [BACKUP-OPTIONS]:
   -------------------------------
@@ -335,6 +337,7 @@ sub get_options{
     "limit-memory=i",
     "my-file=s",
     "buffer-pool-file=s",
+    "history-logging!",
     "debug!",
     "help",
     "version"
@@ -394,6 +397,7 @@ sub parse_config_file{
               || $var =~ /^(no-?|)skip-binlog$/
               || $var =~ /^(no-?|)skip-relaylog$/
               || $var =~ /^(no-?|)debug$/ 
+              || $var =~ /^(no-?|)history-logging$/
             ){
               # value is not defined so figure out what it needs to be
               if(!defined($value)){
@@ -404,6 +408,11 @@ sub parse_config_file{
                 else{
                   $value = 1;
                 }
+              }
+              # value is defined
+              else{
+                print "Option ".$var." does not take an argument\n";
+                usage(0);                
               }
               log_msg("Setting Option [".$var."] to value [".$value."]", $LOG_DEBUG);
               $options{$var} = $value;
@@ -1017,6 +1026,10 @@ sub take_backup{
   
   if($options{'skip-relaylog'}){
     push(@program, "--skip-relaylog");
+  }
+  
+  if(! $options{'history-logging'}){
+    push(@program, "--no-history-logging");
   }
   
   if($options{'backup-dir'}){
