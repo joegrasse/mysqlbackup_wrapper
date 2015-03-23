@@ -292,7 +292,9 @@ Usage:
                     Skips copying of relaylogs
                     
   --my-file
-                    The configuration file to include in backup.
+                    The configuration file to include in backup. It is saved and
+                    restored as saved-my.cnf. If not set and /etc/my.cnf is 
+                    present and readable, /etc/my.cnf is backed up by default.
                     
   --buffer-pool-file=PATH
                     The location of the InnoDB Buffer Pool to backup.
@@ -507,8 +509,11 @@ sub validate_options{
       
       # Check my-file
       if(defined $options{'my-file'} && ! -r $options{'my-file'}){
-        print "--my-file is not a readable file\n";
+        print $options{'my-file'}." set by option --my-file, is not a readable file\n";
         usage(0);
+      }
+      elsif(! defined $options{'my-file'} && -r '/etc/my.cnf'){
+        $options{'my-file'} = '/etc/my.cnf';
       }
       
       # Check buffer-pool-file
