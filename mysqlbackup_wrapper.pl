@@ -14,7 +14,7 @@ no warnings 'File::Find';
 use POSIX qw(strftime mktime);
 use Time::HiRes qw(tv_interval gettimeofday time);
 
-my $mysqlbackup = '/usr2/admin/mysql/meb-current/mysqlbackup';
+my $mysqlbackup = 'mysqlbackup';
 my $backupname_regex = "[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}";
 
 my $LOG_DEBUG = 1;
@@ -223,6 +223,9 @@ Usage:
   $script --mode=restore --backup-dir=PATH --restore-dir=PATH [STD-OPTIONS] [RESTORE-OPTIONS]
   
   --mode=MODE           The mode to run, which is either backup or restore
+  --mysqlbackup=MYSQLBACKUP
+                        The mysqlbackup binary location. Useful if mysqlbackup
+                        binary is not in your path.
   
   Standard Options [STD-OPTIONS]:
   -------------------------------
@@ -314,6 +317,7 @@ sub get_options{
 
   my $ret = GetOptions( \%options,
     "mode=s",
+    "mysqlbackup=s",
     "backup-dir=s",
     "backup-type=s",
     "restore-dir=s",
@@ -443,6 +447,16 @@ sub validate_options{
     elsif($options{'mode'} ne 'backup' && $options{'mode'} ne 'restore'){
       print "Invalid --mode\n";
       usage(0);
+    }
+    
+    if($options{'mysqlbackup'}){ 
+      if(! -x $options{'mysqlbackup'}){
+        print "$options{'mysqlbackup'} is not executable\n";
+        usage(0);
+      }
+      else{
+        $mysqlbackup = $options{'mysqlbackup'};
+      }
     }
     
     # Check Backup Dir
