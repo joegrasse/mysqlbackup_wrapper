@@ -223,9 +223,6 @@ Usage:
   $script --mode=restore --backup-dir=PATH --restore-dir=PATH [STD-OPTIONS] [RESTORE-OPTIONS]
   
   --mode=MODE           The mode to run, which is either backup or restore
-  --mysqlbackup=MYSQLBACKUP
-                        The mysqlbackup binary location. Useful if mysqlbackup
-                        binary is not in your path.
   
   Standard Options [STD-OPTIONS]:
   -------------------------------
@@ -239,6 +236,9 @@ Usage:
                         number of memory buffers is adjusted according to this 
                         value.
   --email=S             Email address to send audit report
+  --mysqlbackup=MYSQLBACKUP
+                        The mysqlbackup binary location. Useful if mysqlbackup
+                        binary is not in your path.
   --help                Show help
   --version             Show version
   --debug               Enable verbose debugging output
