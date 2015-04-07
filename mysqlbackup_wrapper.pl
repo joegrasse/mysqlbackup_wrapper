@@ -309,6 +309,11 @@ Usage:
                         
   --restore-dir=PATH    
                     Location to restore backup to. Must be absolute path.
+  
+  --force
+                    By default, the restore operation will refuse to overwrite
+                    files in the --restore-dir. The --force option will cause
+                    files to be overwritten.
 
 END
 
@@ -340,6 +345,7 @@ sub get_options{
     "my-file=s",
     "buffer-pool-file=s",
     "history-logging!",
+    "force!",
     "debug!",
     "help",
     "version"
@@ -400,6 +406,7 @@ sub parse_config_file{
               || $var =~ /^(no-?|)skip-relaylog$/
               || $var =~ /^(no-?|)debug$/ 
               || $var =~ /^(no-?|)history-logging$/
+              || $var =~ /^(no-?|)force$/
             ){
               # value is not defined so figure out what it needs to be
               if(!defined($value)){
@@ -669,6 +676,24 @@ sub get_backup_dir_list{
     log_msg($stderr, $LOG_DEBUG);
     return (0,@dirs);
   }
+}
+
+sub dir_is_empty{
+  my $dir = shift;
+  
+  opendir DIR, $dir;
+  
+  while(my $entry = readdir DIR) {  
+    next if($entry =~ /^\.\.?$/);
+    
+    closedir DIR;
+    
+    return 0;
+  }
+
+  closedir DIR;
+
+  return 1;
 }
 
 sub remove_dir{
@@ -1319,6 +1344,7 @@ sub restore_single_backup{
     "--backup-dir=".$tmp_dir,
     "--datadir=".$restore_dir,
     ($backup_type eq 'full' ? '--uncompress' : '--incremental'),
+    "--force",
     "copy-back-and-apply-log")
   );
   
@@ -1351,6 +1377,12 @@ sub restore_backup{
   
   my @backups_to_restore = get_list_of_backups_to_restore($options{'backup-dir'});
   if(@backups_to_restore > 0){
+    # Check if restore dir is empty
+    if(!dir_is_empty($options{'restore-dir'}) && ! $options{'force'}){
+      log_msg($options{'restore-dir'}.' is a non-empty directory. Use the "--force" option to overwrite.', $LOG_ERR);
+      return 0;
+    }
+    
     @backups_to_restore = reverse @backups_to_restore;
     
     # Create tmp dir for tmp restore items
