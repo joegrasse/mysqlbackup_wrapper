@@ -974,6 +974,7 @@ sub take_backup{
   my @now_string = localtime();
   log_msg("Backup Server: $hostname", $LOG_INFO);
   log_msg("Backup Date: ". strftime("%A, %B %d %Y %H:%M:%S", @now_string), $LOG_INFO);
+  log_msg("Backup Type: ".ucfirst($options{'backup-type'}), $LOG_INFO);
   
   if($options{'backup-type'} eq 'incremental'){
     $last_backup = get_last_backup();
