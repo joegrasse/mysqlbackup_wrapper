@@ -215,7 +215,8 @@ sub usage{
 $exit_code = $_[0];
 
 my $txt = <<END;
-$script - Wrapper script for mysqlbackup.
+$script - Wrapper script for mysqlbackup. Requires mysqlbackup version 3.12.0 or
+greater.
 
 Usage: 
   $script --mode=backup --backup-dir=PATH [STD-OPTIONS] [BACKUP-OPTIONS]
@@ -1533,11 +1534,70 @@ sub remove_pidfile{
   }
 }
 
+sub correct_mysqlbackup_version{
+  log_msg("Checking version of mysqlbackup command.", $LOG_DEBUG);
+  my @program = ($mysqlbackup, "--version");
+  
+  my ($success, $stdout, $stderr) = run_command(@program);
+  
+  if($success){
+    if($stderr =~ /^.*MySQL Enterprise Backup version ((\d+)(\.(\d+)(\.(\d+))?)?).*$/m){
+      my $version = $1;
+      my $major = $2;
+      my $minor = 0;
+      my $revision = 0;
+      # Grab minor if set
+      if($4){
+        $minor = $4;
+      }
+      # Grab revision if set
+      if($6){
+        $revision = $6;
+      }
+      
+      log_msg("Version string is $version major: $major minor: $minor revision: $revision", $LOG_DEBUG); 
+      
+      if($major < 3){
+        return 0;
+      }
+      elsif($major > 3){
+        return 1;
+      }
+      # major is 3
+      else{
+        if($minor >= 12){
+          return 1;
+        }
+        else{
+          return 0;
+        }
+      }    
+      return 0;
+    }
+    else{
+      log_msg("Failed to get version string from mysqlbackup", $LOG_ERR);
+      log_msg($stderr, $LOG_DEBUG);
+      return 0;
+    }
+  }
+  else{
+    log_msg("Failed to check version of mysqlbackup", $LOG_ERR);
+    log_msg($stderr, $LOG_DEBUG);
+    return 0;
+  }
+}
+
 sub main{
   get_options();
   parse_config_file() or exit(1);
   validate_options();
   get_hostname();
+  
+  # Check mysqlbackup version
+  if(!correct_mysqlbackup_version()){
+    log_msg("Incorrect version of mysqlbackup detected. Version must be 3.12.0 or greater", $LOG_ERR);
+    exit($exit_code);
+  }
   
   if(can_run()){    
     if($options{'mode'} eq 'backup'){
