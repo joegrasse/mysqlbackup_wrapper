@@ -1357,7 +1357,7 @@ sub restore_single_backup{
     }
     
     # If we backed up the ib_buffer_pool file, restore it as well
-    if(-r $backup_dir."/saved-ib_buffer_pool" && ! copy($backup_dir."/saved-ib_buffer_pool",$restore_dir."/saved-ib_buffer_pool")){
+    if(-r $backup_dir."/saved-ib_buffer_pool" && ! copy($backup_dir."/saved-ib_buffer_pool",$restore_dir."/ib_buffer_pool")){
       log_msg("Failed to restore ".$backup_dir."/saved-ib_buffer_pool $!", $LOG_WARNING);
     }
     
