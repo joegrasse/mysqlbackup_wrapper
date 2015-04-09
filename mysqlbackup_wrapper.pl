@@ -581,7 +581,7 @@ sub valid_retention(){
       return 0;
     }
     elsif($options{'retention'} < 0){
-      print "Retention policy must be greater than 0\n";
+      print "Retention policy must be greater than or equal to 0\n";
       return 0;
     }
     else{
@@ -800,10 +800,8 @@ sub purge_by_number{
 
   log_msg("Purging by number", $LOG_DEBUG);
   
-  if($options{'backup-type'} eq 'full'){
-    # need to adjust number for backup that just happen before purge
-    $options{'retention'}++;
-  }
+  # need to adjust number for backup that just happen before purge
+  $options{'retention'}++;
   
   my ($success, @dirs) = get_backup_dir_list($options{'backup-dir'}, 1);
   if($success){
