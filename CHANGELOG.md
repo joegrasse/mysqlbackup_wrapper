@@ -10,6 +10,9 @@
 ### Improvements
   - Backup type is now printed
   - Added --force option to allow overwriting non-empty directories.
+  
+### Bug Fixes
+  - Fix purging of backups when retention value is 0
 
 ## 1.1.0 (March 23, 2015)
 
