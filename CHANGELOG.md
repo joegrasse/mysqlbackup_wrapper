@@ -9,7 +9,7 @@
 
 ### Improvements
   - Backup type is now printed
-  - Added --force option to allow overwriting non-empty directories.
+  - Added `--force` option to allow overwriting non-empty directories.
   
 ### Bug Fixes
   - Fixed purging of backups when retention value was 0
