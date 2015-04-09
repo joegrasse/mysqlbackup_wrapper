@@ -12,6 +12,7 @@
   - Added --force option to allow overwriting non-empty directories.
   
 ### Bug Fixes
+  - Fixed purging of backups when retention value was 0
 
 ## 1.1.0 (March 23, 2015)
 
