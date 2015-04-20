@@ -223,26 +223,33 @@ Usage:
   
   $script --mode=restore --backup-dir=PATH --restore-dir=PATH [STD-OPTIONS] [RESTORE-OPTIONS]
   
-  --mode=MODE           The mode to run, which is either backup or restore
+  --mode=MODE       The mode to run, which is either backup or restore
   
   Standard Options [STD-OPTIONS]:
   -------------------------------
-  --config-file=PATH    Configuration file. Processes option group 
-                        [mysqlbackup-wrapper]. You can also have option group
-                        [mysqlbackup], which will be processed by mysqlbackup.
-  --limit-memory=MB     This option determines the memory available for the MEB
-                        operation. The default value for apply-log is 100 which
-                        implies 100MB. For all other operations the default 
-                        value is 300 and it implies 300MB. If required, the 
-                        number of memory buffers is adjusted according to this 
-                        value.
-  --email=S             Email address to send audit report
+  --config-file=PATH    
+                    Configuration file. Processes option group 
+                    [mysqlbackup-wrapper]. You can also have option group
+                    [mysqlbackup], which will be processed by mysqlbackup.
+
+  --limit-memory=MB     
+                    This option determines the memory available for the MEB
+                    operation. The default value for apply-log is 100 which
+                    implies 100MB. For all other operations the default value is
+                    300 and it implies 300MB. If required, the number of memory 
+                    buffers is adjusted according to this value.
+
+  --email=S         Email address to send audit report
+
   --mysqlbackup=MYSQLBACKUP
-                        The mysqlbackup binary location. Useful if mysqlbackup
-                        binary is not in your path.
-  --help                Show help
-  --version             Show version
-  --debug               Enable verbose debugging output
+                    The mysqlbackup binary location. Useful if mysqlbackup
+                    binary is not in your path.
+
+  --help            Show help
+
+  --version         Show version
+
+  --debug           Enable verbose debugging output
   
   Backup Options [BACKUP-OPTIONS]:
   -------------------------------
