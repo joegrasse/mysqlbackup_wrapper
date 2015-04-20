@@ -244,6 +244,14 @@ Usage:
   --mysqlbackup=MYSQLBACKUP
                     The mysqlbackup binary location. Useful if mysqlbackup
                     binary is not in your path.
+                    
+  --skip-binlog
+                    Skips copying of binlogs on backup, or skips copying the
+                    binlogs onto the server on restore.
+                    
+  --skip-relaylog
+                    Skips copying of relaylogs on backup, or skips copying the
+                    relay logs onto the server on restore.
 
   --help            Show help
 
@@ -292,12 +300,6 @@ Usage:
                     
   --optimistic-time=S   
                     Optimistic time to pass to mysqlbackup
-                    
-  --skip-binlog
-                    Skips copying of binlogs
-                    
-  --skip-relaylog
-                    Skips copying of relaylogs
                     
   --my-file
                     The configuration file to include in backup. It is saved and
@@ -1343,6 +1345,14 @@ sub restore_single_backup{
 
   if($options{'limit-memory'}){
     push(@program, "--limit-memory=".$options{'limit-memory'});
+  }
+  
+  if($options{'skip-binlog'}){
+    push(@program, "--skip-binlog");
+  }
+  
+  if($options{'skip-relaylog'}){
+    push(@program, "--skip-relaylog");
   }
 
   push(@program, 
