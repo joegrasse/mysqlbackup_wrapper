@@ -1243,12 +1243,55 @@ sub find_in_dir{
   return @found_items;
 }
 
-
-sub restore_cleanup{
+sub restore_cleanup_single{
   my $restore_dir = shift;
   my $restore_tmp_dir = shift;
   
+  my $return_code = 1;  
+  
+  log_msg("Cleaning up after single restore", $LOG_DEBUG);
+  
+  # Check for ibbackup_slav_info file
+  if(-e $restore_dir."/meta/ibbackup_slave_info"){
+    # Try to copy it to the root of the restore dir
+    log_msg("Copying ".$restore_dir."/meta/ibbackup_slave_info to ".$restore_dir, $LOG_DEBUG);
+    if(! copy($restore_dir."/meta/ibbackup_slave_info", $restore_dir)){
+      log_msg("Failed to copy ".$restore_dir."/meta/ibbackup_slave_info to ".$restore_dir." ".$!, $LOG_WARNING);
+      $return_code = 0;
+    }
+  }
+   
+  # Move restore log files to root level of restored dir
+  log_msg("Moving restore log files to root of backup dir", $LOG_DEBUG);
+  my @restore_log_files = glob $restore_tmp_dir."/meta/MEB_*.log";
+  foreach my $log_file (@restore_log_files){
+    if(! move($log_file, $restore_dir)){
+      log_msg("Failed to move ".$log_file." to ".$restore_dir, $LOG_WARNING);
+      $return_code = 0;
+    }
+  }
+
+  # Remove restore temp dir
+  if(-e $restore_tmp_dir && ! remove_dir($restore_tmp_dir)){
+    log_msg("Failed to remove dir ".$restore_tmp_dir, $LOG_WARNING);
+    $return_code = 0;
+  }
+  
+  # Remove meta dir
+  if(-e $restore_dir."/meta" && ! remove_dir($restore_dir."/meta")){
+    log_msg("Failed to remove dir ".$restore_dir."/meta", $LOG_WARNING);
+    $return_code = 0;
+  }
+
+  return $return_code;
+}
+
+sub restore_cleanup{
+  my $restore_dir = shift;
+  
   my $return_code = 1;
+  
+  log_msg("Final Clean up", $LOG_DEBUG);
   
   # Remove server-all.cnf
   log_msg("Removing ".$restore_dir."/server-all.cnf if it exists", $LOG_DEBUG);
@@ -1267,26 +1310,6 @@ sub restore_cleanup{
   log_msg("Removing ".$restore_dir."/backup_variables.txt if it exists", $LOG_DEBUG);
   if(-e $restore_dir."/backup_variables.txt" && ! unlink($restore_dir."/backup_variables.txt")){
     log_msg("Failed to unlink ".$restore_dir."/backup_variables.txt : $!", $LOG_WARNING);
-    $return_code = 0;
-  }
-  
-  # Remove meta dir
-  if(-e $restore_dir."/meta" && ! remove_dir($restore_dir."/meta")){
-    $return_code = 0;
-  }
-  
-  # Move restore log files to root level of restored dir
-  log_msg("Moving restore log files to root of backup dir", $LOG_DEBUG);
-  my @restore_log_files = glob $restore_tmp_dir."/meta/MEB_*.log";
-  foreach my $log_file (@restore_log_files){
-    if(! move($log_file, $restore_dir)){
-      log_msg("Failed to move ".$log_file." to ".$restore_dir, $LOG_WARNING);
-      $return_code = 0;
-    }
-  }
-
-  # Remove restore temp dir
-  if(-e $restore_tmp_dir && ! remove_dir($restore_tmp_dir)){
     $return_code = 0;
   }
   
@@ -1401,29 +1424,23 @@ sub restore_backup{
     
     @backups_to_restore = reverse @backups_to_restore;
     
-    # Create tmp dir for tmp restore items
-    my $backup_tmp_dir = tempdir("mysqlbackup_wrapper_XXXXXX", DIR => $options{'restore-dir'});
-    
     my $restore_start = [gettimeofday];
     
     foreach my $backup_to_restore (@backups_to_restore){
+      # Create tmp dir for tmp restore items
+      my $backup_tmp_dir = tempdir("mysqlbackup_wrapper_XXXXXX", DIR => $options{'restore-dir'});
+
       if(! restore_single_backup($backup_to_restore, $options{'restore-dir'}, $backup_tmp_dir)){
         log_msg("Restore Status: Failed", $LOG_INFO);
         return 0;
       }
-      else{
-        # Check for ibbackup_slav_info file
-        if(-e $options{'restore-dir'}."/meta/ibbackup_slave_info"){
-          # Try to copy it to the root of the restore dir
-          log_msg("Copying ".$options{'restore-dir'}."/meta/ibbackup_slave_info to ".$options{'restore-dir'}, $LOG_DEBUG);
-          if(! copy($options{'restore-dir'}."/meta/ibbackup_slave_info", $options{'restore-dir'})){
-            log_msg("Failed to copy ".$options{'restore-dir'}."/meta/ibbackup_slave_info to ".$options{'restore-dir'}." ".$!, $LOG_WARNING);
-          }
-        }
+      elsif(! restore_cleanup_single($options{'restore-dir'}, $backup_tmp_dir)){
+        log_msg("Failed Clean up after restoring ". $backup_to_restore, $LOG_ERR);
+        return 0;
       }
     }
     
-    restore_cleanup($options{'restore-dir'}, $backup_tmp_dir);
+    restore_cleanup($options{'restore-dir'});
     
     log_msg("Restore Time: ".strftime("%H:%M:%S",gmtime(tv_interval($restore_start))), $LOG_INFO);
     log_msg("Restore Status: Completed Successfully", $LOG_INFO);
