@@ -6,6 +6,7 @@
   - mysqlbackup 3.12.0 or greater is now required.
   - Restore will not continue if the restore directory is non-empty.
   - ib_buffer_pool is now restored to ib_buffer_pool instead of saved-ib_buffer_pool
+  - Removed `--mode` option
 
 ### Improvements
   - Backup type is now printed
