@@ -477,15 +477,7 @@ sub validate_options{
       usage(0);
     }
     
-    if($options{'mysqlbackup'}){ 
-      if(! -x $options{'mysqlbackup'}){
-        print "$options{'mysqlbackup'} is not executable\n";
-        usage(0);
-      }
-      else{
-        $mysqlbackup = $options{'mysqlbackup'};
-      }
-    }
+    check_mysqlbackup_binary();
     
     # Check Backup Dir
     if(!$options{'backup-dir'}){
@@ -1566,6 +1558,55 @@ sub remove_pidfile{
   }
 }
 
+sub check_mysqlbackup_binary{
+  # check mysqlbackup binary set by option
+  if($options{'mysqlbackup'}){
+    if(! -e $options{'mysqlbackup'}){
+      print "'$options{'mysqlbackup'}' is not found\n";
+      exit(0);
+    } 
+    elsif(! -x $options{'mysqlbackup'}){
+      print "'$options{'mysqlbackup'}' is not executable\n";
+      exit(0);
+    }
+    else{
+      $mysqlbackup = $options{'mysqlbackup'};
+    }
+  }
+  # check for mysqlbackup in current dir or working path
+  else{
+    log_msg("Check for mysqlbackup in path", $LOG_DEBUG);
+    my @program = ("which", "mysqlbackup");    
+    my ($success, $stdout, $stderr) = run_command(@program);
+    
+    log_msg("Success: $success", $LOG_DEBUG);
+    log_msg("Stdout ".$stdout, $LOG_DEBUG);
+    log_msg("Stderr ".$stderr, $LOG_DEBUG);
+    
+    log_msg("Check for mysqlbackup in working directory", $LOG_DEBUG);
+    if(!$success){
+      my $mysqlbackup_tmp = "./".$mysqlbackup;
+      if(! -e $mysqlbackup_tmp){
+        print "$mysqlbackup command not found in working directory or path\n";
+        exit(0);
+      }
+      elsif(! -x $mysqlbackup_tmp){
+        print "'$mysqlbackup_tmp' is not executable\n";
+        exit(0);
+      }
+      else{
+        $mysqlbackup = $mysqlbackup_tmp;
+      }
+    }
+  }
+  
+  # Check mysqlbackup version
+  if(!correct_mysqlbackup_version()){
+    print "Incorrect version of mysqlbackup detected. Version must be 3.12.0 or greater\n";
+    exit(0);
+  }
+}
+
 sub correct_mysqlbackup_version{
   log_msg("Checking version of mysqlbackup command.", $LOG_DEBUG);
   my @program = ($mysqlbackup, "--version");
@@ -1624,12 +1665,6 @@ sub main{
   parse_config_file() or exit(1);
   validate_options();
   get_hostname();
-  
-  # Check mysqlbackup version
-  if(!correct_mysqlbackup_version()){
-    log_msg("Incorrect version of mysqlbackup detected. Version must be 3.12.0 or greater", $LOG_ERR);
-    exit($exit_code);
-  }
   
   if(can_run()){    
     if($options{'mode'} eq 'backup'){
