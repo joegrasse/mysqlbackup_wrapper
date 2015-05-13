@@ -41,6 +41,8 @@ my $retention_type = 'time';
 my $chmod_dir = 0700;
 my $chmod_file = 0660;
 
+my $mode = 'backup';
+
 sub get_hostname{
   $hostname = hostfqdn;
   if(! defined $hostname){
@@ -219,11 +221,9 @@ $script - Wrapper script for mysqlbackup. Requires mysqlbackup version 3.12.0 or
 greater.
 
 Usage: 
-  $script --mode=backup --backup-dir=PATH [STD-OPTIONS] [BACKUP-OPTIONS]
+  Backup:  $script --backup-dir=PATH [STD-OPTIONS] [BACKUP-OPTIONS]
   
-  $script --mode=restore --backup-dir=PATH --restore-dir=PATH [STD-OPTIONS] [RESTORE-OPTIONS]
-  
-  --mode=MODE       The mode to run, which is either backup or restore
+  Restore: $script --backup-dir=PATH --restore-dir=PATH [STD-OPTIONS] [RESTORE-OPTIONS]
   
   Standard Options [STD-OPTIONS]:
   -------------------------------
@@ -335,7 +335,6 @@ sub get_options{
   log_msg("Getting options", $LOG_DEBUG);
 
   my $ret = GetOptions( \%options,
-    "mode=s",
     "mysqlbackup=s",
     "backup-dir=s",
     "backup-type=s",
@@ -466,17 +465,7 @@ sub validate_options{
   elsif(exists($options{'version'})){
     version();
   }
-  else{
-    # Check backup mode
-    if(!$options{'mode'}){
-      print "Required option --mode is missing\n";
-      usage(0);
-    }
-    elsif($options{'mode'} ne 'backup' && $options{'mode'} ne 'restore'){
-      print "Invalid --mode\n";
-      usage(0);
-    }
-    
+  else{    
     check_mysqlbackup_binary();
     
     # Check Backup Dir
@@ -501,8 +490,31 @@ sub validate_options{
       usage(0);
     }
     
+    # Check for restore directory
+    if($options{'restore-dir'}){
+      # Check for relative path
+      if($options{'restore-dir'} !~ /^\//){
+        print "Option --restore-dir must be an absolute path\n";
+        usage(0);
+      }
+      elsif($options{'backup-dir'} eq $options{'restore-dir'}){
+        print "--backup-dir and --restore-dir can not be the same location\n";
+        usage(0);
+      }
+      elsif(! -w $options{'restore-dir'}){
+        print "Restore directory is not writable or does not exist\n";
+        usage(0);
+      }
+      # Check for Ending Slash
+      elsif($options{'restore-dir'} =~ /.+\/$/){
+        chop($options{'restore-dir'});
+      }
+      
+      $mode = 'restore';
+    }
+    
     # Taking a backup
-    if($options{'mode'} eq 'backup'){
+    if($mode eq 'backup'){
       if(! exists $options{'backup-type'}){
         $options{'backup-type'} = 'full';
       }
@@ -529,30 +541,6 @@ sub validate_options{
       if(defined $options{'buffer-pool-file'} && ! -r $options{'buffer-pool-file'}){
         print "--buffer-pool-file is not a readable file\n";
         usage(0);
-      }
-    }
-    # Doing a restore
-    else{
-      if(!$options{'restore-dir'}){
-        print "Required option --restore-dir is missing\n";
-        usage(0);
-      }
-      # Check for relative path
-      elsif($options{'restore-dir'} !~ /^\//){
-        print "Option --restore-dir must be an absolute path\n";
-        usage(0);
-      }
-      elsif($options{'backup-dir'} eq $options{'restore-dir'}){
-        print "--backup-dir and --restore-dir can not be the same location\n";
-        usage(0);
-      }
-      elsif(! -w $options{'restore-dir'}){
-        print "Restore directory is not writable or does not exist\n";
-        usage(0);
-      }
-      # Check for Ending Slash
-      elsif($options{'restore-dir'} =~ /.+\/$/){
-        chop($options{'restore-dir'});
       }
     }
   }
@@ -877,7 +865,7 @@ sub email_report{
   
   $headers=$headers.'From: MySQL Backup Wrapper Script <mysql@prairiesys.com>'.$email_line_end;
   $headers=$headers."To: ".$options{email}.$email_line_end;
-  $headers=$headers."Subject: MySQL ".($options{'mode'} eq 'backup' ? ucfirst($options{'backup-type'}).' ' : '').ucfirst($options{'mode'})." for $hostname".$email_line_end;
+  $headers=$headers."Subject: MySQL ".($mode eq 'backup' ? ucfirst($options{'backup-type'}).' ' : '').ucfirst($mode)." for $hostname".$email_line_end;
   
   if($exit_code == 1){
     $headers=$headers."X-Priority: 1 (Highest)".$email_line_end;
@@ -1667,7 +1655,7 @@ sub main{
   get_hostname();
   
   if(can_run()){    
-    if($options{'mode'} eq 'backup'){
+    if($mode eq 'backup'){
       if(take_backup() && defined $options{'retention'}){
         purge_old_backups();
       }
