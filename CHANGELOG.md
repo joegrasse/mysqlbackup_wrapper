@@ -1,6 +1,6 @@
 # ChangeLog for the MySQL Enterprise Backup Wrapper Script 
 
-## 1.2.0 (unreleased)
+## 2.0.0 (unreleased)
 
 ### Backwards Incompatible Changes
   - mysqlbackup 3.12.0 or greater is now required.
