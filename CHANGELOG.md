@@ -1,5 +1,20 @@
 # ChangeLog for the MySQL Enterprise Backup Wrapper Script 
 
+## 2.0.0 (unreleased)
+
+### Backwards Incompatible Changes
+  - mysqlbackup 3.12.0 or greater is now required.
+  - Restore will not continue if the restore directory is non-empty.
+  - ib_buffer_pool is now restored to ib_buffer_pool instead of saved-ib_buffer_pool
+  - Removed `--mode` option
+
+### Improvements
+  - Backup type is now printed
+  - Added `--force` option to allow overwriting non-empty directories.
+  
+### Bug Fixes
+  - Fixed purging of backups when retention value was 0
+
 ## 1.1.0 (March 23, 2015)
 
 ### Backwards Incompatible Changes

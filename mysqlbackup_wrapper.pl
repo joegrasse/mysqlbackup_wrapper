@@ -24,7 +24,7 @@ my $LOG_ERR = 4;
 
 my $script_path = $0;
 my $script = substr($script_path, rindex($script_path, '/') + 1, length($script_path));
-my $version = "1.1.0";
+my $version = "2.0.0";
 my $pid_file = "/tmp/mysqlbackup_wrapper.pid";
 
 my $exit_code = 0;
@@ -40,6 +40,8 @@ my $retention_type = 'time';
 
 my $chmod_dir = 0700;
 my $chmod_file = 0660;
+
+my $mode = 'backup';
 
 sub get_hostname{
   $hostname = hostfqdn;
@@ -215,33 +217,47 @@ sub usage{
 $exit_code = $_[0];
 
 my $txt = <<END;
-$script - Wrapper script for mysqlbackup.
+$script - Wrapper script for mysqlbackup. Requires mysqlbackup version 3.12.0 or
+greater.
 
 Usage: 
-  $script --mode=backup --backup-dir=PATH [STD-OPTIONS] [BACKUP-OPTIONS]
+  Backup:  $script --backup-dir=PATH [STD-OPTIONS] [BACKUP-OPTIONS]
   
-  $script --mode=restore --backup-dir=PATH --restore-dir=PATH [STD-OPTIONS] [RESTORE-OPTIONS]
-  
-  --mode=MODE           The mode to run, which is either backup or restore
+  Restore: $script --backup-dir=PATH --restore-dir=PATH [STD-OPTIONS] [RESTORE-OPTIONS]
   
   Standard Options [STD-OPTIONS]:
   -------------------------------
-  --config-file=PATH    Configuration file. Processes option group 
-                        [mysqlbackup-wrapper]. You can also have option group
-                        [mysqlbackup], which will be processed by mysqlbackup.
-  --limit-memory=MB     This option determines the memory available for the MEB
-                        operation. The default value for apply-log is 100 which
-                        implies 100MB. For all other operations the default 
-                        value is 300 and it implies 300MB. If required, the 
-                        number of memory buffers is adjusted according to this 
-                        value.
-  --email=S             Email address to send audit report
+  --config-file=PATH    
+                    Configuration file. Processes option group 
+                    [mysqlbackup-wrapper]. You can also have option group
+                    [mysqlbackup], which will be processed by mysqlbackup.
+
+  --limit-memory=MB     
+                    This option determines the memory available for the MEB
+                    operation. The default value for apply-log is 100 which
+                    implies 100MB. For all other operations the default value is
+                    300 and it implies 300MB. If required, the number of memory 
+                    buffers is adjusted according to this value.
+
+  --email=S         Email address to send audit report
+
   --mysqlbackup=MYSQLBACKUP
-                        The mysqlbackup binary location. Useful if mysqlbackup
-                        binary is not in your path.
-  --help                Show help
-  --version             Show version
-  --debug               Enable verbose debugging output
+                    The mysqlbackup binary location. Useful if mysqlbackup
+                    binary is not in your path.
+                    
+  --skip-binlog
+                    Skips copying of binlogs on backup, or skips copying the
+                    binlogs onto the server on restore.
+                    
+  --skip-relaylog
+                    Skips copying of relaylogs on backup, or skips copying the
+                    relay logs onto the server on restore.
+
+  --help            Show help
+
+  --version         Show version
+
+  --debug           Enable verbose debugging output
   
   Backup Options [BACKUP-OPTIONS]:
   -------------------------------
@@ -285,12 +301,6 @@ Usage:
   --optimistic-time=S   
                     Optimistic time to pass to mysqlbackup
                     
-  --skip-binlog
-                    Skips copying of binlogs
-                    
-  --skip-relaylog
-                    Skips copying of relaylogs
-                    
   --my-file
                     The configuration file to include in backup. It is saved and
                     restored as saved-my.cnf. If not set and /etc/my.cnf is 
@@ -309,6 +319,11 @@ Usage:
                         
   --restore-dir=PATH    
                     Location to restore backup to. Must be absolute path.
+  
+  --force
+                    By default, the restore operation will refuse to overwrite
+                    files in the --restore-dir. The --force option will cause
+                    files to be overwritten.
 
 END
 
@@ -320,7 +335,6 @@ sub get_options{
   log_msg("Getting options", $LOG_DEBUG);
 
   my $ret = GetOptions( \%options,
-    "mode=s",
     "mysqlbackup=s",
     "backup-dir=s",
     "backup-type=s",
@@ -340,6 +354,7 @@ sub get_options{
     "my-file=s",
     "buffer-pool-file=s",
     "history-logging!",
+    "force!",
     "debug!",
     "help",
     "version"
@@ -400,6 +415,7 @@ sub parse_config_file{
               || $var =~ /^(no-?|)skip-relaylog$/
               || $var =~ /^(no-?|)debug$/ 
               || $var =~ /^(no-?|)history-logging$/
+              || $var =~ /^(no-?|)force$/
             ){
               # value is not defined so figure out what it needs to be
               if(!defined($value)){
@@ -449,26 +465,8 @@ sub validate_options{
   elsif(exists($options{'version'})){
     version();
   }
-  else{
-    # Check backup mode
-    if(!$options{'mode'}){
-      print "Required option --mode is missing\n";
-      usage(0);
-    }
-    elsif($options{'mode'} ne 'backup' && $options{'mode'} ne 'restore'){
-      print "Invalid --mode\n";
-      usage(0);
-    }
-    
-    if($options{'mysqlbackup'}){ 
-      if(! -x $options{'mysqlbackup'}){
-        print "$options{'mysqlbackup'} is not executable\n";
-        usage(0);
-      }
-      else{
-        $mysqlbackup = $options{'mysqlbackup'};
-      }
-    }
+  else{    
+    check_mysqlbackup_binary();
     
     # Check Backup Dir
     if(!$options{'backup-dir'}){
@@ -492,8 +490,31 @@ sub validate_options{
       usage(0);
     }
     
+    # Check for restore directory
+    if($options{'restore-dir'}){
+      # Check for relative path
+      if($options{'restore-dir'} !~ /^\//){
+        print "Option --restore-dir must be an absolute path\n";
+        usage(0);
+      }
+      elsif($options{'backup-dir'} eq $options{'restore-dir'}){
+        print "--backup-dir and --restore-dir can not be the same location\n";
+        usage(0);
+      }
+      elsif(! -w $options{'restore-dir'}){
+        print "Restore directory is not writable or does not exist\n";
+        usage(0);
+      }
+      # Check for Ending Slash
+      elsif($options{'restore-dir'} =~ /.+\/$/){
+        chop($options{'restore-dir'});
+      }
+      
+      $mode = 'restore';
+    }
+    
     # Taking a backup
-    if($options{'mode'} eq 'backup'){
+    if($mode eq 'backup'){
       if(! exists $options{'backup-type'}){
         $options{'backup-type'} = 'full';
       }
@@ -520,30 +541,6 @@ sub validate_options{
       if(defined $options{'buffer-pool-file'} && ! -r $options{'buffer-pool-file'}){
         print "--buffer-pool-file is not a readable file\n";
         usage(0);
-      }
-    }
-    # Doing a restore
-    else{
-      if(!$options{'restore-dir'}){
-        print "Required option --restore-dir is missing\n";
-        usage(0);
-      }
-      # Check for relative path
-      elsif($options{'restore-dir'} !~ /^\//){
-        print "Option --restore-dir must be an absolute path\n";
-        usage(0);
-      }
-      elsif($options{'backup-dir'} eq $options{'restore-dir'}){
-        print "--backup-dir and --restore-dir can not be the same location\n";
-        usage(0);
-      }
-      elsif(! -w $options{'restore-dir'}){
-        print "Restore directory is not writable or does not exist\n";
-        usage(0);
-      }
-      # Check for Ending Slash
-      elsif($options{'restore-dir'} =~ /.+\/$/){
-        chop($options{'restore-dir'});
       }
     }
   }
@@ -573,7 +570,7 @@ sub valid_retention(){
       return 0;
     }
     elsif($options{'retention'} < 0){
-      print "Retention policy must be greater than 0\n";
+      print "Retention policy must be greater than or equal to 0\n";
       return 0;
     }
     else{
@@ -669,6 +666,24 @@ sub get_backup_dir_list{
     log_msg($stderr, $LOG_DEBUG);
     return (0,@dirs);
   }
+}
+
+sub dir_is_empty{
+  my $dir = shift;
+  
+  opendir DIR, $dir;
+  
+  while(my $entry = readdir DIR) {  
+    next if($entry =~ /^\.\.?$/);
+    
+    closedir DIR;
+    
+    return 0;
+  }
+
+  closedir DIR;
+
+  return 1;
 }
 
 sub remove_dir{
@@ -774,10 +789,8 @@ sub purge_by_number{
 
   log_msg("Purging by number", $LOG_DEBUG);
   
-  if($options{'backup-type'} eq 'full'){
-    # need to adjust number for backup that just happen before purge
-    $options{'retention'}++;
-  }
+  # need to adjust number for backup that just happen before purge
+  $options{'retention'}++;
   
   my ($success, @dirs) = get_backup_dir_list($options{'backup-dir'}, 1);
   if($success){
@@ -852,7 +865,7 @@ sub email_report{
   
   $headers=$headers.'From: MySQL Backup Wrapper Script <mysql@prairiesys.com>'.$email_line_end;
   $headers=$headers."To: ".$options{email}.$email_line_end;
-  $headers=$headers."Subject: MySQL ".($options{'mode'} eq 'backup' ? ucfirst($options{'backup-type'}).' ' : '').ucfirst($options{'mode'})." for $hostname".$email_line_end;
+  $headers=$headers."Subject: MySQL ".($mode eq 'backup' ? ucfirst($options{'backup-type'}).' ' : '').ucfirst($mode)." for $hostname".$email_line_end;
   
   if($exit_code == 1){
     $headers=$headers."X-Priority: 1 (Highest)".$email_line_end;
@@ -974,6 +987,7 @@ sub take_backup{
   my @now_string = localtime();
   log_msg("Backup Server: $hostname", $LOG_INFO);
   log_msg("Backup Date: ". strftime("%A, %B %d %Y %H:%M:%S", @now_string), $LOG_INFO);
+  log_msg("Backup Type: ".ucfirst($options{'backup-type'}), $LOG_INFO);
   
   if($options{'backup-type'} eq 'incremental'){
     $last_backup = get_last_backup();
@@ -1209,12 +1223,55 @@ sub find_in_dir{
   return @found_items;
 }
 
-
-sub restore_cleanup{
+sub restore_cleanup_single{
   my $restore_dir = shift;
   my $restore_tmp_dir = shift;
   
+  my $return_code = 1;  
+  
+  log_msg("Cleaning up after single restore", $LOG_DEBUG);
+  
+  # Check for ibbackup_slav_info file
+  if(-e $restore_dir."/meta/ibbackup_slave_info"){
+    # Try to copy it to the root of the restore dir
+    log_msg("Copying ".$restore_dir."/meta/ibbackup_slave_info to ".$restore_dir, $LOG_DEBUG);
+    if(! copy($restore_dir."/meta/ibbackup_slave_info", $restore_dir)){
+      log_msg("Failed to copy ".$restore_dir."/meta/ibbackup_slave_info to ".$restore_dir." ".$!, $LOG_WARNING);
+      $return_code = 0;
+    }
+  }
+   
+  # Move restore log files to root level of restored dir
+  log_msg("Moving restore log files to root of backup dir", $LOG_DEBUG);
+  my @restore_log_files = glob $restore_tmp_dir."/meta/MEB_*.log";
+  foreach my $log_file (@restore_log_files){
+    if(! move($log_file, $restore_dir)){
+      log_msg("Failed to move ".$log_file." to ".$restore_dir, $LOG_WARNING);
+      $return_code = 0;
+    }
+  }
+
+  # Remove restore temp dir
+  if(-e $restore_tmp_dir && ! remove_dir($restore_tmp_dir)){
+    log_msg("Failed to remove dir ".$restore_tmp_dir, $LOG_WARNING);
+    $return_code = 0;
+  }
+  
+  # Remove meta dir
+  if(-e $restore_dir."/meta" && ! remove_dir($restore_dir."/meta")){
+    log_msg("Failed to remove dir ".$restore_dir."/meta", $LOG_WARNING);
+    $return_code = 0;
+  }
+
+  return $return_code;
+}
+
+sub restore_cleanup{
+  my $restore_dir = shift;
+  
   my $return_code = 1;
+  
+  log_msg("Final Clean up", $LOG_DEBUG);
   
   # Remove server-all.cnf
   log_msg("Removing ".$restore_dir."/server-all.cnf if it exists", $LOG_DEBUG);
@@ -1233,26 +1290,6 @@ sub restore_cleanup{
   log_msg("Removing ".$restore_dir."/backup_variables.txt if it exists", $LOG_DEBUG);
   if(-e $restore_dir."/backup_variables.txt" && ! unlink($restore_dir."/backup_variables.txt")){
     log_msg("Failed to unlink ".$restore_dir."/backup_variables.txt : $!", $LOG_WARNING);
-    $return_code = 0;
-  }
-  
-  # Remove meta dir
-  if(-e $restore_dir."/meta" && ! remove_dir($restore_dir."/meta")){
-    $return_code = 0;
-  }
-  
-  # Move restore log files to root level of restored dir
-  log_msg("Moving restore log files to root of backup dir", $LOG_DEBUG);
-  my @restore_log_files = glob $restore_tmp_dir."/meta/MEB_*.log";
-  foreach my $log_file (@restore_log_files){
-    if(! move($log_file, $restore_dir)){
-      log_msg("Failed to move ".$log_file." to ".$restore_dir, $LOG_WARNING);
-      $return_code = 0;
-    }
-  }
-
-  # Remove restore temp dir
-  if(-e $restore_tmp_dir && ! remove_dir($restore_tmp_dir)){
     $return_code = 0;
   }
   
@@ -1312,12 +1349,21 @@ sub restore_single_backup{
   if($options{'limit-memory'}){
     push(@program, "--limit-memory=".$options{'limit-memory'});
   }
+  
+  if($options{'skip-binlog'}){
+    push(@program, "--skip-binlog");
+  }
+  
+  if($options{'skip-relaylog'}){
+    push(@program, "--skip-relaylog");
+  }
 
   push(@program, 
     ("--backup-image=".$backup_dir."/".($backup_type eq 'full' ? 'backup.mbi' : 'backup-incremental.mbi'),
     "--backup-dir=".$tmp_dir,
     "--datadir=".$restore_dir,
     ($backup_type eq 'full' ? '--uncompress' : '--incremental'),
+    "--force",
     "copy-back-and-apply-log")
   );
   
@@ -1329,7 +1375,7 @@ sub restore_single_backup{
     }
     
     # If we backed up the ib_buffer_pool file, restore it as well
-    if(-r $backup_dir."/saved-ib_buffer_pool" && ! copy($backup_dir."/saved-ib_buffer_pool",$restore_dir."/saved-ib_buffer_pool")){
+    if(-r $backup_dir."/saved-ib_buffer_pool" && ! copy($backup_dir."/saved-ib_buffer_pool",$restore_dir."/ib_buffer_pool")){
       log_msg("Failed to restore ".$backup_dir."/saved-ib_buffer_pool $!", $LOG_WARNING);
     }
     
@@ -1350,31 +1396,31 @@ sub restore_backup{
   
   my @backups_to_restore = get_list_of_backups_to_restore($options{'backup-dir'});
   if(@backups_to_restore > 0){
-    @backups_to_restore = reverse @backups_to_restore;
+    # Check if restore dir is empty
+    if(!dir_is_empty($options{'restore-dir'}) && ! $options{'force'}){
+      log_msg($options{'restore-dir'}.' is a non-empty directory. Use the "--force" option to overwrite.', $LOG_ERR);
+      return 0;
+    }
     
-    # Create tmp dir for tmp restore items
-    my $backup_tmp_dir = tempdir("mysqlbackup_wrapper_XXXXXX", DIR => $options{'restore-dir'});
+    @backups_to_restore = reverse @backups_to_restore;
     
     my $restore_start = [gettimeofday];
     
     foreach my $backup_to_restore (@backups_to_restore){
+      # Create tmp dir for tmp restore items
+      my $backup_tmp_dir = tempdir("mysqlbackup_wrapper_XXXXXX", DIR => $options{'restore-dir'});
+
       if(! restore_single_backup($backup_to_restore, $options{'restore-dir'}, $backup_tmp_dir)){
         log_msg("Restore Status: Failed", $LOG_INFO);
         return 0;
       }
-      else{
-        # Check for ibbackup_slav_info file
-        if(-e $options{'restore-dir'}."/meta/ibbackup_slave_info"){
-          # Try to copy it to the root of the restore dir
-          log_msg("Copying ".$options{'restore-dir'}."/meta/ibbackup_slave_info to ".$options{'restore-dir'}, $LOG_DEBUG);
-          if(! copy($options{'restore-dir'}."/meta/ibbackup_slave_info", $options{'restore-dir'})){
-            log_msg("Failed to copy ".$options{'restore-dir'}."/meta/ibbackup_slave_info to ".$options{'restore-dir'}." ".$!, $LOG_WARNING);
-          }
-        }
+      elsif(! restore_cleanup_single($options{'restore-dir'}, $backup_tmp_dir)){
+        log_msg("Failed Clean up after restoring ". $backup_to_restore, $LOG_ERR);
+        return 0;
       }
     }
     
-    restore_cleanup($options{'restore-dir'}, $backup_tmp_dir);
+    restore_cleanup($options{'restore-dir'});
     
     log_msg("Restore Time: ".strftime("%H:%M:%S",gmtime(tv_interval($restore_start))), $LOG_INFO);
     log_msg("Restore Status: Completed Successfully", $LOG_INFO);
@@ -1500,6 +1546,108 @@ sub remove_pidfile{
   }
 }
 
+sub check_mysqlbackup_binary{
+  # check mysqlbackup binary set by option
+  if($options{'mysqlbackup'}){
+    if(! -e $options{'mysqlbackup'}){
+      print "'$options{'mysqlbackup'}' is not found\n";
+      exit(0);
+    } 
+    elsif(! -x $options{'mysqlbackup'}){
+      print "'$options{'mysqlbackup'}' is not executable\n";
+      exit(0);
+    }
+    else{
+      $mysqlbackup = $options{'mysqlbackup'};
+    }
+  }
+  # check for mysqlbackup in current dir or working path
+  else{
+    log_msg("Check for mysqlbackup in path", $LOG_DEBUG);
+    my @program = ("which", "mysqlbackup");    
+    my ($success, $stdout, $stderr) = run_command(@program);
+    
+    log_msg("Success: $success", $LOG_DEBUG);
+    log_msg("Stdout ".$stdout, $LOG_DEBUG);
+    log_msg("Stderr ".$stderr, $LOG_DEBUG);
+    
+    log_msg("Check for mysqlbackup in working directory", $LOG_DEBUG);
+    if(!$success){
+      my $mysqlbackup_tmp = "./".$mysqlbackup;
+      if(! -e $mysqlbackup_tmp){
+        print "$mysqlbackup command not found in working directory or path\n";
+        exit(0);
+      }
+      elsif(! -x $mysqlbackup_tmp){
+        print "'$mysqlbackup_tmp' is not executable\n";
+        exit(0);
+      }
+      else{
+        $mysqlbackup = $mysqlbackup_tmp;
+      }
+    }
+  }
+  
+  # Check mysqlbackup version
+  if(!correct_mysqlbackup_version()){
+    print "Incorrect version of mysqlbackup detected. Version must be 3.12.0 or greater\n";
+    exit(0);
+  }
+}
+
+sub correct_mysqlbackup_version{
+  log_msg("Checking version of mysqlbackup command.", $LOG_DEBUG);
+  my @program = ($mysqlbackup, "--version");
+  
+  my ($success, $stdout, $stderr) = run_command(@program);
+  
+  if($success){
+    if($stderr =~ /^.*MySQL Enterprise Backup version ((\d+)(\.(\d+)(\.(\d+))?)?).*$/m){
+      my $version = $1;
+      my $major = $2;
+      my $minor = 0;
+      my $revision = 0;
+      # Grab minor if set
+      if($4){
+        $minor = $4;
+      }
+      # Grab revision if set
+      if($6){
+        $revision = $6;
+      }
+      
+      log_msg("Version string is $version major: $major minor: $minor revision: $revision", $LOG_DEBUG); 
+      
+      if($major < 3){
+        return 0;
+      }
+      elsif($major > 3){
+        return 1;
+      }
+      # major is 3
+      else{
+        if($minor >= 12){
+          return 1;
+        }
+        else{
+          return 0;
+        }
+      }    
+      return 0;
+    }
+    else{
+      log_msg("Failed to get version string from mysqlbackup", $LOG_ERR);
+      log_msg($stderr, $LOG_DEBUG);
+      return 0;
+    }
+  }
+  else{
+    log_msg("Failed to check version of mysqlbackup", $LOG_ERR);
+    log_msg($stderr, $LOG_DEBUG);
+    return 0;
+  }
+}
+
 sub main{
   get_options();
   parse_config_file() or exit(1);
@@ -1507,7 +1655,7 @@ sub main{
   get_hostname();
   
   if(can_run()){    
-    if($options{'mode'} eq 'backup'){
+    if($mode eq 'backup'){
       if(take_backup() && defined $options{'retention'}){
         purge_old_backups();
       }
