@@ -4,6 +4,7 @@
 
 ### Bug Fixes
   - Fixed backup dir validation test when doing a restore
+  - Don't always print usage on error
 
 ## 2.0.0 (June 5, 2015)
 

@@ -430,7 +430,7 @@ sub parse_config_file{
               # value is defined
               else{
                 print "Option ".$var." does not take an argument\n";
-                usage(0);                
+                exit(0);                
               }
               log_msg("Setting Option [".$var."] to value [".$value."]", $LOG_DEBUG);
               $options{$var} = $value;
@@ -473,15 +473,15 @@ sub validate_options{
       # Check for relative path
       if($options{'restore-dir'} !~ /^\//){
         print "Option --restore-dir must be an absolute path\n";
-        usage(0);
+        exit(0);
       }
       elsif($options{'backup-dir'} eq $options{'restore-dir'}){
         print "--backup-dir and --restore-dir can not be the same location\n";
-        usage(0);
+        exit(0);
       }
       elsif(! -w $options{'restore-dir'}){
         print "Restore directory is not writable or does not exist\n";
-        usage(0);
+        exit(0);
       }
       # Check for Ending Slash
       elsif($options{'restore-dir'} =~ /.+\/$/){
@@ -494,16 +494,16 @@ sub validate_options{
     # Check Backup Dir
     if(!$options{'backup-dir'}){
       print "Required option --backup-dir is missing\n";
-      usage(0);
+      exit(0);
     }
     # Check writable
     elsif($mode eq 'backup' && ! -w $options{'backup-dir'}){
       print "Backup directory is not writable or does not exist\n";
-      usage(0);
+      exit(0);
     }
     elsif($mode eq 'restore' && ! -r $options{'backup-dir'}){
       print "Backup directory is not readable or does not exist\n";
-      usage(0);
+      exit(0);
     }
     
     # Check for Ending Slash
@@ -514,7 +514,7 @@ sub validate_options{
     # Check for relative path
     if( $options{'backup-dir'} !~ /^\//){
       print "Option --backup-dir must be an absolute path\n";
-      usage(0);
+      exit(0);
     }
     
     # Taking a backup
@@ -524,18 +524,18 @@ sub validate_options{
       }
       elsif($options{'backup-type'} ne 'full' && $options{'backup-type'} ne 'incremental'){
         print "Incorrect --backup-type specified\n";
-        usage(0);
+        exit(0);
       }
 
       # Check retention
       if(defined $options{'retention'} && !valid_retention()){
-        usage(0);
+        exit(0);
       }
       
       # Check my-file
       if(defined $options{'my-file'} && ! -r $options{'my-file'}){
         print $options{'my-file'}." set by option --my-file, is not a readable file\n";
-        usage(0);
+        exit(0);
       }
       elsif(! defined $options{'my-file'} && -r '/etc/my.cnf'){
         $options{'my-file'} = '/etc/my.cnf';
@@ -544,7 +544,7 @@ sub validate_options{
       # Check buffer-pool-file
       if(defined $options{'buffer-pool-file'} && ! -r $options{'buffer-pool-file'}){
         print "--buffer-pool-file is not a readable file\n";
-        usage(0);
+        exit(0);
       }
     }
   }
