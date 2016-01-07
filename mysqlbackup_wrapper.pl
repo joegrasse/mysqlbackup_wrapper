@@ -24,7 +24,7 @@ my $LOG_ERR = 4;
 
 my $script_path = $0;
 my $script = substr($script_path, rindex($script_path, '/') + 1, length($script_path));
-my $version = "2.0.0";
+my $version = "2.0.1";
 my $pid_file = "/tmp/mysqlbackup_wrapper.pid";
 
 my $exit_code = 0;
@@ -468,28 +468,6 @@ sub validate_options{
   else{    
     check_mysqlbackup_binary();
     
-    # Check Backup Dir
-    if(!$options{'backup-dir'}){
-      print "Required option --backup-dir is missing\n";
-      usage(0);
-    }
-    # Check writable
-    elsif(! -w $options{'backup-dir'}){
-      print "Backup directory is not writable or does not exist\n";
-      usage(0);
-    }
-    
-    # Check for Ending Slash
-    if($options{'backup-dir'} =~ /.+\/$/){
-      chop($options{'backup-dir'});
-    }
-    
-    # Check for relative path
-    if( $options{'backup-dir'} !~ /^\//){
-      print "Option --backup-dir must be an absolute path\n";
-      usage(0);
-    }
-    
     # Check for restore directory
     if($options{'restore-dir'}){
       # Check for relative path
@@ -511,6 +489,32 @@ sub validate_options{
       }
       
       $mode = 'restore';
+    }
+
+    # Check Backup Dir
+    if(!$options{'backup-dir'}){
+      print "Required option --backup-dir is missing\n";
+      usage(0);
+    }
+    # Check writable
+    elsif($mode eq 'backup' && ! -w $options{'backup-dir'}){
+      print "Backup directory is not writable or does not exist\n";
+      usage(0);
+    }
+    elsif($mode eq 'restore' && ! -r $options{'backup-dir'}){
+      print "Backup directory is not readable or does not exist\n";
+      usage(0);
+    }
+    
+    # Check for Ending Slash
+    if($options{'backup-dir'} =~ /.+\/$/){
+      chop($options{'backup-dir'});
+    }
+    
+    # Check for relative path
+    if( $options{'backup-dir'} !~ /^\//){
+      print "Option --backup-dir must be an absolute path\n";
+      usage(0);
     }
     
     # Taking a backup

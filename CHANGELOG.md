@@ -1,5 +1,10 @@
 # ChangeLog for the MySQL Enterprise Backup Wrapper Script 
 
+## 2.0.1
+
+### Bug Fixes
+  - Fixed backup dir validation test when doing a restore
+
 ## 2.0.0 (June 5, 2015)
 
 ### Backwards Incompatible Changes
