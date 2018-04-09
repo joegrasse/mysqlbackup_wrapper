@@ -1,5 +1,10 @@
 # ChangeLog for the MySQL Enterprise Backup Wrapper Script 
 
+## 2.1.0
+
+### Improvements
+  - master status is now saved to ibbackup_master_info in the restore dir
+
 ## 2.0.1
 
 ### Bug Fixes

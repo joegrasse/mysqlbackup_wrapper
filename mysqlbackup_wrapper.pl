@@ -24,7 +24,7 @@ my $LOG_ERR = 4;
 
 my $script_path = $0;
 my $script = substr($script_path, rindex($script_path, '/') + 1, length($script_path));
-my $version = "2.0.1";
+my $version = "2.1.0";
 my $pid_file = "/tmp/mysqlbackup_wrapper.pid";
 
 my $exit_code = 0;
@@ -1227,6 +1227,69 @@ sub find_in_dir{
   return @found_items;
 }
 
+sub create_master_info{
+  my $binlog = shift;
+  my $pos = shift;
+  my $restore_dir = shift;
+
+  log_msg("Creating master info file", $LOG_DEBUG);
+
+  if(open(MASTER_INFO, ">$restore_dir/ibbackup_master_info")){
+    print MASTER_INFO "CHANGE MASTER TO MASTER_LOG_FILE='$binlog', MASTER_LOG_POS=$pos\n";
+    close(MASTER_INFO);
+
+    return 1;
+  }
+  else{
+    if(-e "$restore_dir/ibbackup_master_info"){
+      log_msg("$restore_dir/ibbackup_master_info exits and is not writable.", $LOG_ERR);
+      log_msg("Failed to open for write master_info_file: $!", $LOG_DEBUG);
+    }
+    else{
+      log_msg("Failed to create master_info_file file: $!", $LOG_ERR);
+    }
+  }
+
+  return 0
+}
+
+sub get_master_info{
+  my $restore_dir = shift;
+
+  if(-e $restore_dir."/meta/backup_variables.txt"){
+    if (!open (BACKUP_VARS, $restore_dir."/meta/backup_variables.txt")){
+      log_msg("Can not open backup_variables.txt: $!", $LOG_ERR);
+    }
+    else{
+      while(<BACKUP_VARS>){
+        chomp;
+        s/#.*//;
+        s/^\s*//;
+        s/\s*$//;
+
+        next unless length;
+
+        if(/\s*=\s*/){
+          my ($var, $value) = split(/\s*=\s*/, $_, 2);
+
+          # check for master binlog position
+          if($var eq "binlog_position") {
+            # get binlog and position
+            my ($binlog, $pos) = split(/:/, $value, 2);
+            return ($binlog, $pos)
+          }
+        }
+      }
+      close(BACKUP_VARS);
+    }
+  }
+  else {
+    log_msg("backup_variables.txt not found", $LOG_ERR);
+  }
+
+  return ("",0);
+}
+
 sub restore_cleanup_single{
   my $restore_dir = shift;
   my $restore_tmp_dir = shift;
@@ -1243,6 +1306,12 @@ sub restore_cleanup_single{
       log_msg("Failed to copy ".$restore_dir."/meta/ibbackup_slave_info to ".$restore_dir." ".$!, $LOG_WARNING);
       $return_code = 0;
     }
+  }
+
+  # check for master info
+  my ($binlog, $pos) = get_master_info($restore_tmp_dir);
+  if($binlog ne ""){
+    create_master_info($binlog, $pos, $restore_dir);
   }
    
   # Move restore log files to root level of restored dir
