@@ -24,7 +24,7 @@ my $LOG_ERR = 4;
 
 my $script_path = $0;
 my $script = substr($script_path, rindex($script_path, '/') + 1, length($script_path));
-my $version = "2.0.0";
+my $version = "2.1.0";
 my $pid_file = "/tmp/mysqlbackup_wrapper.pid";
 
 my $exit_code = 0;
@@ -430,7 +430,7 @@ sub parse_config_file{
               # value is defined
               else{
                 print "Option ".$var." does not take an argument\n";
-                usage(0);                
+                exit(0);                
               }
               log_msg("Setting Option [".$var."] to value [".$value."]", $LOG_DEBUG);
               $options{$var} = $value;
@@ -468,15 +468,42 @@ sub validate_options{
   else{    
     check_mysqlbackup_binary();
     
+    # Check for restore directory
+    if($options{'restore-dir'}){
+      # Check for relative path
+      if($options{'restore-dir'} !~ /^\//){
+        print "Option --restore-dir must be an absolute path\n";
+        exit(0);
+      }
+      elsif($options{'backup-dir'} eq $options{'restore-dir'}){
+        print "--backup-dir and --restore-dir can not be the same location\n";
+        exit(0);
+      }
+      elsif(! -w $options{'restore-dir'}){
+        print "Restore directory is not writable or does not exist\n";
+        exit(0);
+      }
+      # Check for Ending Slash
+      elsif($options{'restore-dir'} =~ /.+\/$/){
+        chop($options{'restore-dir'});
+      }
+      
+      $mode = 'restore';
+    }
+
     # Check Backup Dir
     if(!$options{'backup-dir'}){
       print "Required option --backup-dir is missing\n";
-      usage(0);
+      exit(0);
     }
     # Check writable
-    elsif(! -w $options{'backup-dir'}){
+    elsif($mode eq 'backup' && ! -w $options{'backup-dir'}){
       print "Backup directory is not writable or does not exist\n";
-      usage(0);
+      exit(0);
+    }
+    elsif($mode eq 'restore' && ! -r $options{'backup-dir'}){
+      print "Backup directory is not readable or does not exist\n";
+      exit(0);
     }
     
     # Check for Ending Slash
@@ -487,30 +514,7 @@ sub validate_options{
     # Check for relative path
     if( $options{'backup-dir'} !~ /^\//){
       print "Option --backup-dir must be an absolute path\n";
-      usage(0);
-    }
-    
-    # Check for restore directory
-    if($options{'restore-dir'}){
-      # Check for relative path
-      if($options{'restore-dir'} !~ /^\//){
-        print "Option --restore-dir must be an absolute path\n";
-        usage(0);
-      }
-      elsif($options{'backup-dir'} eq $options{'restore-dir'}){
-        print "--backup-dir and --restore-dir can not be the same location\n";
-        usage(0);
-      }
-      elsif(! -w $options{'restore-dir'}){
-        print "Restore directory is not writable or does not exist\n";
-        usage(0);
-      }
-      # Check for Ending Slash
-      elsif($options{'restore-dir'} =~ /.+\/$/){
-        chop($options{'restore-dir'});
-      }
-      
-      $mode = 'restore';
+      exit(0);
     }
     
     # Taking a backup
@@ -520,18 +524,18 @@ sub validate_options{
       }
       elsif($options{'backup-type'} ne 'full' && $options{'backup-type'} ne 'incremental'){
         print "Incorrect --backup-type specified\n";
-        usage(0);
+        exit(0);
       }
 
       # Check retention
       if(defined $options{'retention'} && !valid_retention()){
-        usage(0);
+        exit(0);
       }
       
       # Check my-file
       if(defined $options{'my-file'} && ! -r $options{'my-file'}){
         print $options{'my-file'}." set by option --my-file, is not a readable file\n";
-        usage(0);
+        exit(0);
       }
       elsif(! defined $options{'my-file'} && -r '/etc/my.cnf'){
         $options{'my-file'} = '/etc/my.cnf';
@@ -540,7 +544,7 @@ sub validate_options{
       # Check buffer-pool-file
       if(defined $options{'buffer-pool-file'} && ! -r $options{'buffer-pool-file'}){
         print "--buffer-pool-file is not a readable file\n";
-        usage(0);
+        exit(0);
       }
     }
   }
@@ -1223,6 +1227,69 @@ sub find_in_dir{
   return @found_items;
 }
 
+sub create_master_info{
+  my $binlog = shift;
+  my $pos = shift;
+  my $restore_dir = shift;
+
+  log_msg("Creating master info file", $LOG_DEBUG);
+
+  if(open(MASTER_INFO, ">$restore_dir/ibbackup_master_info")){
+    print MASTER_INFO "CHANGE MASTER TO MASTER_LOG_FILE='$binlog', MASTER_LOG_POS=$pos\n";
+    close(MASTER_INFO);
+
+    return 1;
+  }
+  else{
+    if(-e "$restore_dir/ibbackup_master_info"){
+      log_msg("$restore_dir/ibbackup_master_info exits and is not writable.", $LOG_ERR);
+      log_msg("Failed to open for write master_info_file: $!", $LOG_DEBUG);
+    }
+    else{
+      log_msg("Failed to create master_info_file file: $!", $LOG_ERR);
+    }
+  }
+
+  return 0
+}
+
+sub get_master_info{
+  my $restore_dir = shift;
+
+  if(-e $restore_dir."/meta/backup_variables.txt"){
+    if (!open (BACKUP_VARS, $restore_dir."/meta/backup_variables.txt")){
+      log_msg("Can not open backup_variables.txt: $!", $LOG_ERR);
+    }
+    else{
+      while(<BACKUP_VARS>){
+        chomp;
+        s/#.*//;
+        s/^\s*//;
+        s/\s*$//;
+
+        next unless length;
+
+        if(/\s*=\s*/){
+          my ($var, $value) = split(/\s*=\s*/, $_, 2);
+
+          # check for master binlog position
+          if($var eq "binlog_position") {
+            # get binlog and position
+            my ($binlog, $pos) = split(/:/, $value, 2);
+            return ($binlog, $pos)
+          }
+        }
+      }
+      close(BACKUP_VARS);
+    }
+  }
+  else {
+    log_msg("backup_variables.txt not found", $LOG_ERR);
+  }
+
+  return ("",0);
+}
+
 sub restore_cleanup_single{
   my $restore_dir = shift;
   my $restore_tmp_dir = shift;
@@ -1239,6 +1306,12 @@ sub restore_cleanup_single{
       log_msg("Failed to copy ".$restore_dir."/meta/ibbackup_slave_info to ".$restore_dir." ".$!, $LOG_WARNING);
       $return_code = 0;
     }
+  }
+
+  # check for master info
+  my ($binlog, $pos) = get_master_info($restore_tmp_dir);
+  if($binlog ne ""){
+    create_master_info($binlog, $pos, $restore_dir);
   }
    
   # Move restore log files to root level of restored dir
